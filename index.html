@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-type" content="text/html; charset=utf-8" />
+    <title>ClickUp Tasks Gantt Chart</title>
+    <!-- Include DHTMLX Gantt CSS and JS -->
+    <script src="https://cdn.dhtmlx.com/gantt/edge/dhtmlxgantt.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdn.dhtmlx.com/gantt/edge/skins/dhtmlxgantt_material.css"
+    />
+
+    <style>
+      html,
+      body {
+        background: #fff;
+        font-family: arial;
+        height: 100%;
+        padding: 0px;
+        margin: 0px;
+        overflow: hidden;
+      }
+      .main-content {
+        padding-top: 50px;
+        height: 600px;
+        height: calc(100vh - 200px);
+      }
+
+      .gantt_task_line.import {
+        background-color: #ffaeae !important;
+        border-color: #ffaeae;
+      }
+      .gantt_task_line.eo {
+        background-color: #f94144 !important;
+        border-color: #f94144;
+      }
+      .gantt_task_line.fo {
+        background-color: #f3722c !important;
+        border-color: #f3722c;
+      }
+      .gantt_task_line.afstemming-bevoegd-gezag {
+        background-color: #f9c74f !important;
+        border-color: #f9c74f;
+      }
+      .gantt_task_line.vo {
+        background-color: #90be6d !important;
+        border-color: #90be6d;
+      }
+      .gantt_task_line.do {
+        background-color: #43aa8b !important;
+        border-color: #43aa8b;
+      }
+      .gantt_task_line.uo {
+        background-color: #577590 !important;
+        border-color: #577590;
+      }
+      .gantt_task_line.default {
+        background-color: #7f8c8d !important;
+        border-color: #7f8c8d;
+      }
+
+      /* Highlight weekends */
+      .gantt_task_cell.weekend {
+        background-color: #f4f7f4;
+      }
+      .gantt_scale_cell.weekend {
+        background-color: #f4f7f4;
+      }
+      .footer-text {
+        text-align: center;
+        margin-top: 10px;
+        color: #333;
+      }
+      p {
+        font-size: 16px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="main-content">
+      <div
+        id="gantt_here"
+        style="width: 100%; height: 100%; padding: 0px"
+      ></div>
+    </div>
+    <p class="footer-text">
+      <i>Kleurenpalet mede mogelijk gemaakt door Kristina Marić</i>
+    </p>
+    <script>
+      window.onload = function () {
+        fetchAndDrawChart();
+      };
+
+      function fetchAndDrawChart() {
+        fetch("http://localhost:3000/api/tasks")
+          .then((response) => {
+            if (!response.ok) {
+              return response.text().then((text) => {
+                throw new Error("Server Error: " + text);
+              });
+            }
+            return response.json();
+          })
+          .then((data) => {
+            console.log("Data fetched from API:", data);
+            const tasks = data.tasks || data;
+            const processedData = processTasks(tasks);
+            drawGanttChart(processedData);
+          })
+          .catch((error) =>
+            console.error("Error fetching tasks:", error.message)
+          );
+      }
+
+      function processTasks(tasks) {
+        console.log("Tasks fetched from API:", tasks);
+
+        const processedTasks = [];
+        const links = [];
+
+        tasks.forEach((task) => {
+          const taskId = task.id;
+          const taskName = task.name || "No Name";
+          let startDate = null;
+          let endDate = null;
+          let projNrAPK = null; // Placeholder for Proj. nr. APK
+          let projNrEnexis = null; // Placeholder for Proj. nr. Enexis
+
+          if (task.start_date) {
+            startDate = new Date(parseInt(task.start_date));
+          }
+
+          if (task.due_date) {
+            endDate = new Date(parseInt(task.due_date));
+          }
+
+          // Extract 'Proj. nr. APK' and 'Proj. nr Enexis' from custom_fields
+          if (task.custom_fields && task.custom_fields.length > 0) {
+            task.custom_fields.forEach((field) => {
+              if (field.name === "Proj. nr. APK") {
+                projNrAPK = field.value || "-";
+              } else if (field.name === "Proj. nr  Enexis") {
+                projNrEnexis = field.value || "-";
+              }
+            });
+          }
+
+          // Get parent ID
+          let parentId = 0; // DHTMLX uses 0 as the root level parent ID
+          if (task.parent) {
+            if (typeof task.parent === "string") {
+              parentId = task.parent;
+            } else if (typeof task.parent === "object" && task.parent.id) {
+              parentId = task.parent.id;
+            }
+          }
+
+          const ganttTask = {
+            id: taskId,
+            text: taskName,
+            start_date: startDate
+              ? startDate.toISOString().split("T")[0]
+              : null,
+            end_date: endDate ? endDate.toISOString().split("T")[0] : null,
+            projNrAPK: projNrAPK, // Include Proj. nr. APK
+            projNrEnexis: projNrEnexis, // Include Proj. nr Enexis
+            parent: parentId,
+            status: task.status ? task.status.status.toLowerCase() : "default", // Include status and ensure lowercase for consistency
+          };
+
+          processedTasks.push(ganttTask);
+
+          // Create a link if there's a parent
+          if (parentId !== 0) {
+            links.push({
+              id: "link_" + taskId,
+              source: parentId,
+              target: taskId,
+              type: "1", // Finish-to-start relationship
+            });
+          }
+        });
+
+        console.log("Processed tasks:", processedTasks);
+
+        return { tasks: processedTasks, links: links };
+      }
+
+      function drawGanttChart(data) {
+        console.log("Data passed to DHTMLX Gantt:", data);
+
+        // Clear existing Gantt data
+        gantt.clearAll();
+
+        // Configure Gantt
+        gantt.config.date_format = "%Y-%m-%d";
+        gantt.config.readonly = false; // Make Gantt chart editable
+        gantt.config.scale_height = 50; // Increase scale height for readability
+
+        // Define two levels of scale: week and day
+        gantt.config.scales = [
+          {
+            unit: "week",
+            step: 1,
+            format: (date) => `Week ${gantt.date.getWeek(date)}`,
+          },
+          { unit: "day", step: 1, format: "%D %d" }, // Shows day name and day of the month
+        ];
+
+        gantt.config.columns = [
+          {
+            name: "text",
+            label: "Projectnaam",
+            tree: true,
+            width: 300,
+            resize: true,
+          },
+          {
+            name: "start_date",
+            label: "Start datum",
+            align: "center",
+            width: 90,
+            resize: true,
+          },
+          {
+            name: "end_date",
+            label: "Deadline",
+            align: "center",
+            width: 90,
+            resize: true,
+          },
+          {
+            name: "projNrAPK",
+            label: "Proj. nr. APK",
+            align: "center",
+            width: 150,
+            resize: true,
+          },
+          {
+            name: "projNrEnexis",
+            label: "Proj. nr. Enexis",
+            align: "center",
+            width: 150,
+            resize: true,
+          },
+          {
+            name: "status",
+            label: "Status",
+            align: "center",
+            width: 200,
+            resize: true,
+          },
+        ];
+
+        gantt.templates.task_class = function (start, end, task) {
+          // Replace spaces with hyphens for valid class names
+          const statusClass = task.status
+            ? task.status.replace(/\s+/g, "-")
+            : "default";
+          const taskClass = `gantt_task_line ${statusClass}`;
+          return taskClass;
+        };
+
+        // Add event listener for changes in the Gantt chart
+        gantt.attachEvent("onAfterTaskUpdate", function (id, item) {
+          updateTaskInClickUp(id, item);
+        });
+
+        // Initialize Gantt chart in the specified container
+        gantt.init("gantt_here");
+
+        // Parse data into Gantt chart
+        gantt.parse(data);
+
+        // Sort the Gantt chart tasks by custom status order
+        sortTasksByCustomOrder();
+      }
+
+      // Custom sorting function using the desired order
+      function sortTasksByCustomOrder() {
+        const customOrder = {
+          import: 1,
+          eo: 2,
+          fo: 3,
+          "afstemming bevoegd gezag": 4,
+          vo: 5,
+          do: 6,
+          uo: 7,
+        };
+
+        gantt.sort(function (a, b) {
+          const orderA = customOrder[a.status] || 100;
+          const orderB = customOrder[b.status] || 100;
+          return orderA - orderB;
+        });
+      }
+
+      // Function to update the task in ClickUp
+      function updateTaskInClickUp(taskId, task) {
+        const payload = {
+          start_date: task.start_date
+            ? new Date(task.start_date).getTime()
+            : null,
+          due_date: task.end_date ? new Date(task.end_date).getTime() : null,
+        };
+
+        fetch(`http://localhost:3000/api/tasks/${taskId}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
+        })
+          .then((response) => {
+            if (!response.ok) {
+              return response.text().then((text) => {
+                throw new Error("Server Error: " + text);
+              });
+            }
+            return response.json();
+          })
+          .then((updatedTask) => {
+            console.log(`Task ${taskId} updated successfully`, updatedTask);
+          })
+          .catch((error) =>
+            console.error("Error updating task in ClickUp:", error.message)
+          );
+      }
+    </script>
+  </body>
+</html>
